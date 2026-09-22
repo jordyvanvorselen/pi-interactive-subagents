@@ -1,7 +1,7 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { visibleWidth } from "@mariozechner/pi-tui";
@@ -1319,6 +1319,103 @@ describe("subagent discovery", () => {
         "expected the tool allowlist as the --tools value",
       );
     });
+  });
+
+  // `--no-extensions` re-enables only extensions that back a whitelisted tool.
+  // pi-anthropic-auth backs none: it wraps the Anthropic transport so a Claude
+  // Pro/Max OAuth token bills against the subscription. Left out, an anthropic/
+  // child dies on its first provider request with "You're out of extra usage".
+  function withAnthropicAuthConfigDir(
+    credentials: unknown,
+    run: (authExtPath: string) => void,
+    opts: { installed?: boolean } = {},
+  ) {
+    withTempDir((dir) => {
+      const previous = process.env.PI_CODING_AGENT_DIR;
+      process.env.PI_CODING_AGENT_DIR = dir;
+      const authExtPath = join(dir, "npm", "node_modules", "@gotgenes", "pi-anthropic-auth", "src", "index.ts");
+      if (opts.installed !== false) {
+        mkdirSync(dirname(authExtPath), { recursive: true });
+        writeFileSync(authExtPath, "export default () => {};", "utf8");
+      }
+      writeFileSync(join(dir, "auth.json"), JSON.stringify(credentials), "utf8");
+      try {
+        run(authExtPath);
+      } finally {
+        restoreEnvVar("PI_CODING_AGENT_DIR", previous);
+      }
+    });
+  }
+
+  function sandboxPartsForModel(model: string, artifactDir: string): string[] {
+    const parts: string[] = [];
+    testApi.applySandboxToParts(
+      parts,
+      {
+        agent: "worker",
+        toolAllowlist: "read,write",
+        model,
+        thinking: "high",
+        systemPromptMode: "append",
+        identity: "You are a worker.",
+        spawnable: null,
+        autoExit: true,
+        cwd: null,
+        agentDir: null,
+      },
+      { artifactDir, name: "worker" },
+    );
+    return parts;
+  }
+
+  it("applySandboxToParts loads pi-anthropic-auth for an Anthropic OAuth child", () => {
+    withAnthropicAuthConfigDir({ anthropic: { type: "oauth", access: "sk-ant-oat01-token" } }, (authExtPath) => {
+      withTempDir((artifactDir) => {
+        const parts = sandboxPartsForModel("anthropic/claude-opus-5", artifactDir);
+        assert.ok(
+          parts.join(" ").includes(authExtPath),
+          "expected the subscription auth extension to be passed with -e, without it the child 400s on extra usage",
+        );
+      });
+    });
+  });
+
+  it("applySandboxToParts leaves non-Anthropic children untouched", () => {
+    withAnthropicAuthConfigDir({ anthropic: { type: "oauth", access: "sk-ant-oat01-token" } }, (authExtPath) => {
+      withTempDir((artifactDir) => {
+        const parts = sandboxPartsForModel("openrouter/z-ai/glm-5.3", artifactDir);
+        assert.ok(
+          !parts.join(" ").includes(authExtPath),
+          "expected no Anthropic auth extension for a non-Anthropic provider",
+        );
+      });
+    });
+  });
+
+  it("applySandboxToParts skips pi-anthropic-auth when the Anthropic credential is an API key", () => {
+    withAnthropicAuthConfigDir({ anthropic: { type: "api", access: "sk-ant-api03-key" } }, (authExtPath) => {
+      withTempDir((artifactDir) => {
+        const parts = sandboxPartsForModel("anthropic/claude-opus-5", artifactDir);
+        assert.ok(
+          !parts.join(" ").includes(authExtPath),
+          "expected API-key traffic to stay on pi's normal path, the extension only shapes OAuth",
+        );
+      });
+    });
+  });
+
+  it("applySandboxToParts still launches when pi-anthropic-auth is not installed", () => {
+    withAnthropicAuthConfigDir(
+      { anthropic: { type: "oauth", access: "sk-ant-oat01-token" } },
+      (authExtPath) => {
+        withTempDir((artifactDir) => {
+          const parts = sandboxPartsForModel("anthropic/claude-opus-5", artifactDir);
+          assert.ok(!parts.join(" ").includes(authExtPath), "expected no -e for an absent package");
+          assert.ok(parts.includes("--no-extensions"), "expected the sandbox to be built regardless");
+        });
+      },
+      { installed: false },
+    );
   });
 
   it("applySandboxToParts omits restriction flags when the loadout was unrestricted", () => {
