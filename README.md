@@ -4,6 +4,14 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in [Herdr
 
 **Herdr-only fork.** See [Acknowledgements](#acknowledgements) for the upstream project, which supports tmux, cmux, zellij, and WezTerm.
 
+## Installation
+
+```bash
+pi install git:github.com/jordyvanvorselen/pi-interactive-subagents
+```
+
+Add `-l` to install for the current project only (`.pi/settings.json`). Update later with `pi update`.
+
 ## How it works
 
 `subagent()` returns immediately. The sub-agent runs in its own Herdr pane — a split off the parent pi pane (`$HERDR_PANE_ID`), created with `--no-focus` so pane creation never steals keyboard focus. The pane is labelled with the sub-agent's name in the Herdr sidebar. A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
