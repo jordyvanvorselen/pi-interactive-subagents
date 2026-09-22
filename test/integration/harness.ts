@@ -32,6 +32,7 @@ import {
   closeSurface,
   shellEscape,
   getFocusedSurface,
+  getSurfaceTab,
 } from "../../pi-extension/subagents/herdr.ts";
 
 // Re-export Herdr primitives for tests
@@ -45,6 +46,7 @@ export {
   closeSurface,
   shellEscape,
   getFocusedSurface,
+  getSurfaceTab,
 };
 
 // ── Paths ──

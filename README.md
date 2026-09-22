@@ -14,12 +14,17 @@ Add `-l` to install for the current project only (`.pi/settings.json`). Update l
 
 ## How it works
 
-`subagent()` returns immediately. The sub-agent runs in its own Herdr pane — a split off the parent pi pane (`$HERDR_PANE_ID`), created with `--no-focus` so pane creation never steals keyboard focus. The pane is labelled with the sub-agent's name in the Herdr sidebar. A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
+`subagent()` returns immediately. The sub-agent runs in its own Herdr surface, created with `--no-focus` so it never steals keyboard focus:
+
+- **Spawned by the main session** — a new tab, labelled with the sub-agent's name. One tab per sub-agent keeps the tab bar readable as a list of what is running.
+- **Spawned by another sub-agent** — a split off the parent's pane (`$HERDR_PANE_ID`), so a whole lineage stays inside one tab.
+
+The pane carries the same name in the Herdr sidebar. Set `PI_SUBAGENT_TOP_LEVEL_SURFACE=pane` to put top-level sub-agents in split panes instead of tabs (the default constant is `SUBAGENT_TOP_LEVEL_SURFACE` in `pi-extension/subagents/herdr.ts`). A live widget above the input tracks every running sub-agent, and when one finishes, its result is steered into the main session as a notification that triggers a new turn.
 
 ```
 ╭─ Subagents ──────────────────────────── 2 running ─╮
-│ 00:23  scout      active · bash 7m                 │
-│ 00:45  scout-2    waiting 2m                       │
+│ 00:23  map-auth-flow    active · bash 7m           │
+│ 00:45  research-oauth   waiting 2m                 │
 ╰────────────────────────────────────────────────────╯
 ```
 
@@ -41,7 +46,7 @@ export PI_SUBAGENT_SHELL_READY_DELAY_MS=2500   # default: 500
 
 | Tool | Description |
 | --- | --- |
-| `subagent` | Spawn a sub-agent in a dedicated Herdr pane (async) |
+| `subagent` | Spawn a sub-agent in a dedicated Herdr tab (or pane, when nested) (async) |
 | `subagent_message` | Message a sub-agent by name — steers it if running, resumes its session if finished |
 | `subagents_list` | List available agent definitions |
 | `ask_question` | *(sub-agent sessions only)* Ask the orchestrator a question and wait for the reply |
@@ -59,7 +64,7 @@ subagent({ agent: "worker", name: "dark-mode", task: "Implement the dark mode to
 | --------- | ---- | ------- | ----------- |
 | `agent` | string | required | Which agent to spawn (must be known and permitted) |
 | `task` | string | required | Task prompt |
-| `name` | string | agent name | Display name for the pane and widget. Must be unique — duplicates are auto-suffixed (`scout`, `scout-2`, …) |
+| `name` | string | agent name | Short descriptive label for the tab/pane and widget, e.g. `auth-token-refactor`. Always set it. Must be unique — duplicates are auto-suffixed (`scout`, `scout-2`, …) |
 | `model` | string | agent's model | Override the model for this spawn |
 | `cwd` | string | agent's `cwd` | Working directory (see [Role folders](#role-folders)) |
 

@@ -18,6 +18,7 @@ import {
   createTrackedSurface,
   createTrackedSurfaceSplit,
   getFocusedSurface,
+  getSurfaceTab,
   waitForFocusedSurface,
   untrackSurface,
   sendCommand,
@@ -80,6 +81,32 @@ for (const backend of backends) {
         waitForScreen(childB, new RegExp(`FOCUS_B_${markerB}`), 20_000, 50),
       ]);
       assert.equal(getFocusedSurface(), anchor);
+    });
+
+    it("opens a tab for a main-session subagent and keeps a nested subagent's child in that tab", async () => {
+      const parentPane = process.env.HERDR_PANE_ID!;
+      const parentTab = getSurfaceTab(parentPane);
+      assert.ok(parentTab, "expected to read the parent pane's tab");
+
+      const top = createTrackedSurface(env, "tab-top-level");
+      const topTab = getSurfaceTab(top);
+      assert.ok(topTab, "expected to read the new surface's tab");
+      assert.notEqual(topTab, parentTab, "a main-session subagent must get its own tab");
+
+      // A subagent spawning its own child is marked by PI_SUBAGENT_NAME and
+      // splits its own pane, so a lineage stays in one tab.
+      const savedName = process.env.PI_SUBAGENT_NAME;
+      const savedPane = process.env.HERDR_PANE_ID;
+      try {
+        process.env.PI_SUBAGENT_NAME = "tab-top-level";
+        process.env.HERDR_PANE_ID = top;
+        const nested = createTrackedSurface(env, "tab-nested-child");
+        assert.equal(getSurfaceTab(nested), topTab, "a nested subagent must stay in its parent's tab");
+      } finally {
+        if (savedName === undefined) delete process.env.PI_SUBAGENT_NAME;
+        else process.env.PI_SUBAGENT_NAME = savedName;
+        process.env.HERDR_PANE_ID = savedPane;
+      }
     });
 
     it("creates a surface, sends a command, reads output, and closes it", async () => {

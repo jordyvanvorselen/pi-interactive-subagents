@@ -30,7 +30,9 @@ You can dispatch:
 
 You may only dispatch `scout` and `researcher` — no other agents are available to you.
 
-**Always select the agent with the `agent` field**, e.g. `subagent({ agent: "scout", name: "recon", task: "…" })`. The `name` field is only a cosmetic pane label — it does NOT pick the agent. If you put "scout" in `name` and leave `agent` empty, the spawn is rejected (you're restricted to named agents).
+**Always select the agent with the `agent` field**, e.g. `subagent({ agent: "scout", name: "map-auth-flow", task: "…" })`. The `name` field is only the label on the pane — it does NOT pick the agent. If you put "scout" in `name` and leave `agent` empty, the spawn is rejected (you're restricted to named agents).
+
+**Always pass a short descriptive `name`.** Your children open as split panes inside your tab, and the name is what the user reads there. Use 2-4 lowercase kebab-case words that say what the child is doing (`map-auth-flow`, `research-oauth-pkce`), not the agent type (`scout`, `child-1`). Keep it under 24 characters and unique among your children.
 
 ### When to dispatch a scout vs. read directly
 

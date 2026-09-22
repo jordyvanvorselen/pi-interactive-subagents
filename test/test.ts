@@ -1868,8 +1868,10 @@ describe("tool registration", () => {
       ["agent", "task"],
       "agent and task must be required",
     );
-    // `name` is now optional and purely cosmetic.
-    assert.match(props.name.description, /cosmetic/i);
+    // `name` is optional in the schema, but the description tells the model to
+    // always set a short descriptive label \u2014 it titles the tab or pane.
+    assert.match(props.name.description, /short descriptive label/i);
+    assert.match(props.name.description, /kebab-case/i);
     // The removed override knobs must be gone.
     for (const gone of ["tools", "skills", "systemPrompt", "fork", "interactive", "resumeSessionId"]) {
       assert.equal(props[gone], undefined, `expected ${gone} param to be removed`);
@@ -2653,7 +2655,7 @@ describe("subagent display helpers", () => {
 });
 
 describe("herdr.ts layout", () => {
-  const { planEvenSplits, chooseSplitDirection } = __layoutTest__;
+  const { planEvenSplits, chooseSplitDirection, chooseSurfaceKind } = __layoutTest__;
   const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
   const pane = (pane_id: string, r: ReturnType<typeof rect>) => ({ pane_id, focused: false, rect: r });
 
@@ -2748,6 +2750,30 @@ describe("herdr.ts layout", () => {
       assert.equal(chooseSplitDirection(lopsided, "w1:p2", "down"), "down");
       assert.equal(chooseSplitDirection(undefined, "w1:p1", "auto"), "right");
       assert.equal(chooseSplitDirection(lopsided, "w1:p99", "auto"), "right");
+    });
+  });
+
+  describe("chooseSurfaceKind", () => {
+    it("gives a main-session subagent its own tab and keeps a nested subagent's children in its tab", () => {
+      assert.equal(chooseSurfaceKind(false, "tab"), "tab");
+      assert.equal(chooseSurfaceKind(true, "tab"), "pane");
+    });
+
+    it("falls back to panes everywhere when PI_SUBAGENT_TOP_LEVEL_SURFACE is pane", () => {
+      assert.equal(chooseSurfaceKind(false, "pane"), "pane");
+      assert.equal(chooseSurfaceKind(true, "pane"), "pane");
+    });
+
+    it("reads nesting from PI_SUBAGENT_NAME", () => {
+      const saved = process.env.PI_SUBAGENT_NAME;
+      try {
+        delete process.env.PI_SUBAGENT_NAME;
+        assert.equal(chooseSurfaceKind(undefined, "tab"), "tab");
+        process.env.PI_SUBAGENT_NAME = "map-auth-flow";
+        assert.equal(chooseSurfaceKind(undefined, "tab"), "pane");
+      } finally {
+        restoreEnvVar("PI_SUBAGENT_NAME", saved);
+      }
     });
   });
 });
