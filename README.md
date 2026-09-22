@@ -179,6 +179,20 @@ Status display is configured via `config.json` in the extension directory (copy 
 }
 ```
 
+## Installation
+
+```bash
+pi install git:github.com/jordyvanvorselen/pi-interactive-subagents
+```
+
+Add `-l` to install for the current project only (`.pi/settings.json`). Update later with `pi update`.
+
+To work on the extension itself, install your checkout instead so pi loads the working tree:
+
+```bash
+pi install /path/to/pi-interactive-subagents
+```
+
 ## Requirements
 
 - [pi](https://github.com/badlogic/pi-mono)
