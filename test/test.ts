@@ -30,7 +30,7 @@ import {
   summarizeSessionStats,
 } from "../pi-extension/subagents/session.ts";
 
-import { shellEscape } from "../pi-extension/subagents/tmux.ts";
+import { shellEscape } from "../pi-extension/subagents/herdr.ts";
 import {
   advanceStatusState,
   capStatusLines,
@@ -56,7 +56,7 @@ import {
   runningChildrenCount,
 } from "../pi-extension/subagents/subagent-done.ts";
 import subagentDoneExtension from "../pi-extension/subagents/subagent-done.ts";
-import { __pollForExitTest__ } from "../pi-extension/subagents/tmux.ts";
+import { __pollForExitTest__, __layoutTest__ } from "../pi-extension/subagents/herdr.ts";
 
 // --- Helpers ---
 
@@ -1741,7 +1741,7 @@ describe("subagent-done.ts", () => {
   });
 });
 
-describe("tmux.ts interpretExitSidecar", () => {
+describe("herdr.ts interpretExitSidecar", () => {
   const { interpretExitSidecar } = __pollForExitTest__;
 
   it("no longer decodes ping payloads (ask_question keeps the session open instead)", () => {
@@ -2652,7 +2652,107 @@ describe("subagent display helpers", () => {
   });
 });
 
-describe("tmux.ts", () => {
+describe("herdr.ts layout", () => {
+  const { planEvenSplits, chooseSplitDirection } = __layoutTest__;
+  const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
+  const pane = (pane_id: string, r: ReturnType<typeof rect>) => ({ pane_id, focused: false, rect: r });
+
+  // Real snapshot shape from `herdr pane layout` after splitting w1:p1 right
+  // three times: panes 18/18/24/60 wide, tree left-nested under the root.
+  const lopsided = {
+    zoomed: false,
+    area: rect(0, 0, 120, 40),
+    focused_pane_id: "w1:p1",
+    panes: [
+      pane("w1:p1", rect(0, 0, 18, 40)),
+      pane("w1:p4", rect(18, 0, 18, 40)),
+      pane("w1:p3", rect(36, 0, 24, 40)),
+      pane("w1:p2", rect(60, 0, 60, 40)),
+    ],
+    splits: [
+      { id: "split_0_root", direction: "right" as const, ratio: 0.5, rect: rect(0, 0, 120, 40) },
+      { id: "split_1_0", direction: "right" as const, ratio: 0.6, rect: rect(0, 0, 60, 40) },
+      { id: "split_2_00", direction: "right" as const, ratio: 0.5, rect: rect(0, 0, 36, 40) },
+    ],
+  };
+
+  describe("planEvenSplits", () => {
+    it("targets the pane whose right edge sits on each split boundary, with a ratio delta", () => {
+      const steps = planEvenSplits(lopsided);
+      // root: 3 of 4 columns on the left -> 0.75 (grow from 0.5, owner p3)
+      // split_1_0: 2 of 3 columns -> 0.667 (grow from 0.6, owner p4)
+      // split_2_00: 1 of 2 columns -> 0.5 (already even, skipped)
+      assert.deepEqual(
+        steps.map((s) => [s.pane, s.direction, Number(s.amount.toFixed(3))]),
+        [
+          ["w1:p3", "right", 0.25],
+          ["w1:p4", "right", 0.067],
+        ],
+      );
+    });
+
+    it("shrinks with `left` when the first side is too wide, since herdr ignores the sign of --amount", () => {
+      const steps = planEvenSplits({
+        ...lopsided,
+        panes: [pane("w1:p1", rect(0, 0, 90, 40)), pane("w1:p2", rect(90, 0, 30, 40))],
+        splits: [{ id: "root", direction: "right", ratio: 0.75, rect: rect(0, 0, 120, 40) }],
+      });
+      assert.deepEqual(steps, [{ pane: "w1:p1", direction: "left", amount: 0.25 }]);
+    });
+
+    it("balances vertical splits with up/down", () => {
+      const steps = planEvenSplits({
+        ...lopsided,
+        panes: [pane("w1:p1", rect(0, 0, 120, 10)), pane("w1:p2", rect(0, 10, 120, 30))],
+        splits: [{ id: "root", direction: "down", ratio: 0.25, rect: rect(0, 0, 120, 40) }],
+      });
+      assert.deepEqual(steps, [{ pane: "w1:p1", direction: "down", amount: 0.25 }]);
+    });
+
+    it("counts stacked panes as one column so a down split inside a column does not skew the share", () => {
+      const steps = planEvenSplits({
+        ...lopsided,
+        panes: [
+          pane("w1:p1", rect(0, 0, 60, 40)),
+          pane("w1:p2", rect(60, 0, 60, 20)),
+          pane("w1:p3", rect(60, 20, 60, 20)),
+        ],
+        splits: [
+          { id: "root", direction: "right", ratio: 0.5, rect: rect(0, 0, 120, 40) },
+          { id: "col", direction: "down", ratio: 0.5, rect: rect(60, 0, 60, 40) },
+        ],
+      });
+      assert.deepEqual(steps, []);
+    });
+
+    it("leaves a tab alone when every split is already even", () => {
+      const even = {
+        ...lopsided,
+        panes: [pane("w1:p1", rect(0, 0, 60, 40)), pane("w1:p2", rect(60, 0, 60, 40))],
+        splits: [{ id: "root", direction: "right" as const, ratio: 0.5, rect: rect(0, 0, 120, 40) }],
+      };
+      assert.deepEqual(planEvenSplits(even), []);
+    });
+  });
+
+  describe("chooseSplitDirection", () => {
+    it("splits a wide pane right and a narrow or tall pane down (herdr geometry rule; cells are ~2:1)", () => {
+      assert.equal(chooseSplitDirection(lopsided, "w1:p2", "auto"), "down"); // 60x40
+      assert.equal(chooseSplitDirection(lopsided, "w1:p1", "auto"), "down"); // 18x40
+      const wide = { ...lopsided, panes: [pane("w1:p1", rect(0, 0, 175, 64))] };
+      assert.equal(chooseSplitDirection(wide, "w1:p1", "auto"), "right");
+    });
+
+    it("honours an explicit setting and falls back to right without a layout", () => {
+      assert.equal(chooseSplitDirection(lopsided, "w1:p1", "right"), "right");
+      assert.equal(chooseSplitDirection(lopsided, "w1:p2", "down"), "down");
+      assert.equal(chooseSplitDirection(undefined, "w1:p1", "auto"), "right");
+      assert.equal(chooseSplitDirection(lopsided, "w1:p99", "auto"), "right");
+    });
+  });
+});
+
+describe("herdr.ts", () => {
   describe("shellEscape", () => {
     it("wraps in single quotes", () => {
       assert.equal(shellEscape("hello"), "'hello'");

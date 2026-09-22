@@ -18,13 +18,13 @@ import {
   isMuxAvailable,
   muxSetupHint,
   createSurface,
-  sendCommand,
+  sendMessage,
   sendLongCommand,
   pollForExit,
   closeSurface,
   shellEscape,
   readScreen,
-} from "./tmux.ts";
+} from "./herdr.ts";
 
 import {
   countSessionEntryLines,
@@ -508,10 +508,10 @@ function muxUnavailableResult() {
     content: [
       {
         type: "text" as const,
-        text: `Subagents require tmux. ${muxSetupHint()}`,
+        text: `Subagents require Herdr. ${muxSetupHint()}`,
       },
     ],
-    details: { error: "tmux not available" },
+    details: { error: "herdr not available" },
   };
 }
 
@@ -999,7 +999,7 @@ function resolveRunningByName(name: string):
 function steerSubagent(
   running: RunningSubagent,
   message: string,
-  send: (surface: string, command: string) => void = sendCommand,
+  send: (surface: string, command: string) => void = sendMessage,
 ): { ok: true } | { error: string } {
   const flattened = message.replace(/\s*\n\s*/g, " ").trim();
   try {
@@ -1008,7 +1008,7 @@ function steerSubagent(
   } catch (error: any) {
     return {
       error:
-        `Failed to deliver message to subagent "${running.name}" via tmux: ` +
+        `Failed to deliver message to subagent "${running.name}" via Herdr: ` +
         `${error?.message ?? String(error)}`,
     };
   }
@@ -1016,7 +1016,7 @@ function steerSubagent(
 
 function handleSubagentSteer(
   params: { name?: string; message?: string },
-  send: (surface: string, command: string) => void = sendCommand,
+  send: (surface: string, command: string) => void = sendMessage,
 ) {
   const message = params.message?.trim();
   if (!message) {
