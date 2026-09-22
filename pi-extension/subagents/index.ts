@@ -233,6 +233,46 @@ function getToolExtensionPath(tool: string): string | undefined {
 }
 
 /**
+ * Extensions that must be re-enabled in a child even though they back no tool.
+ *
+ * `--no-extensions` + one `-e` per tool-backing extension leaves out anything
+ * that only wraps the provider transport. `@gotgenes/pi-anthropic-auth` is
+ * exactly that: it shapes Anthropic OAuth requests so a Claude Pro/Max
+ * subscription token is billed against the plan instead of extra usage. Without
+ * it a child on an `anthropic/` model dies on its first provider request with
+ * `400 You're out of extra usage`.
+ *
+ * Fork children are a separate `pi` process, so the extension's own
+ * docs/architecture.md rates them covered "for that process's own modelRuntime
+ * traffic" — the only requirement is that the process load the extension.
+ * Returns undefined when the package is absent or the child is not on an
+ * Anthropic OAuth model, so nothing changes for API-key or other providers.
+ */
+function getProviderAuthExtensionPath(model: string | undefined): string | undefined {
+  if (!model?.startsWith("anthropic/")) return undefined;
+
+  let credentials: string;
+  try {
+    credentials = readFileSync(join(getAgentConfigDir(), "auth.json"), "utf8");
+  } catch {
+    return undefined; // no stored credentials: API key or env-var auth
+  }
+  const access = JSON.parse(credentials)?.anthropic?.access;
+  if (typeof access !== "string" || !access.startsWith("sk-ant-oat")) return undefined;
+
+  const path = join(
+    getAgentConfigDir(),
+    "npm",
+    "node_modules",
+    "@gotgenes",
+    "pi-anthropic-auth",
+    "src",
+    "index.ts",
+  );
+  return existsSync(path) ? path : undefined;
+}
+
+/**
  * When this process was spawned as a restricted subagent, the parent pins the
  * set of agents it may itself spawn via PI_SUBAGENT_ALLOWED. `null` means no
  * restriction (top-level session, or an unrestricted child).
@@ -869,6 +909,8 @@ function applySandboxToParts(
       const extPath = getToolExtensionPath(tool);
       if (extPath && existsSync(extPath)) extPaths.add(extPath);
     }
+    const authExtPath = getProviderAuthExtensionPath(loadout.model);
+    if (authExtPath) extPaths.add(authExtPath);
     for (const extPath of extPaths) {
       parts.push("-e", shellEscape(extPath));
     }
