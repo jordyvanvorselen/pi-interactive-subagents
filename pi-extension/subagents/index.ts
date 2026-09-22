@@ -101,8 +101,10 @@ const SubagentParams = Type.Object({
   name: Type.Optional(
     Type.String({
       description:
-        "Optional cosmetic label for the subagent's pane and widget row. Defaults to the agent name. " +
-        "Has no effect on which agent runs — use `agent` for that.",
+        "Short descriptive label for the subagent's tab/pane and widget row. ALWAYS set it. " +
+        "Name the task, not the agent type: 2-4 words, lowercase, kebab-case, under 24 characters " +
+        "(e.g. 'auth-token-refactor', 'map-payment-flow', 'research-oauth-pkce'). " +
+        "It must be unique within this session. Has no effect on which agent runs — use `agent` for that.",
     }),
   ),
   model: Type.Optional(Type.String({ description: "Model override (overrides agent default)" })),
@@ -1727,14 +1729,17 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       name: "subagent",
       label: "Subagent",
       description:
-        "Spawn a sub-agent in a dedicated terminal multiplexer pane. " +
+        "Spawn a sub-agent in its own terminal multiplexer surface: a new tab when you are the main session, " +
+        "a split pane inside your own tab when you are yourself a subagent. " +
+        "ALWAYS pass a short descriptive `name` (2-4 kebab-case words naming the task) — it becomes the tab or pane title the user reads. " +
         "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
         "When the sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
         "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT call subagents_list or any other tool to 'check' status. All of that is wasted work — the harness handles delivery for you. " +
         "DO NOT fabricate, assume, or summarize results after calling this tool. " +
         "After spawning, either end your turn immediately, or work on other independent tasks (including spawning more subagents in parallel). The harness will wake you with the result when it is ready.",
       promptSnippet:
-        "Spawn a sub-agent in a dedicated terminal multiplexer pane. " +
+        "Spawn a sub-agent in its own terminal multiplexer surface (a new tab from the main session, a split pane from a subagent). " +
+        "ALWAYS pass a short descriptive `name` (2-4 kebab-case words naming the task) — it becomes the tab or pane title. " +
         "This is a fire-and-forget async tool: the call returns immediately with only an acknowledgement. " +
         "When the sub-agent finishes, the harness AUTOMATICALLY delivers its result as a steer message that wakes you up and starts a new turn — you do not need to do anything to receive it. " +
         "DO NOT write polling loops, sleep/wait commands, tail/watch scripts, or repeatedly read session/log files to detect completion. DO NOT call subagents_list or any other tool to 'check' status. All of that is wasted work — the harness handles delivery for you. " +

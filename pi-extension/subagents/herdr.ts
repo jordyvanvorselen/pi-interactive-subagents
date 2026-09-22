@@ -6,10 +6,12 @@
  * it, and poll for exit. Keeping the herdr calls isolated here means index.ts
  * stays testable without a multiplexer running.
  *
- * Panes are identified by Herdr pane ids (e.g. `w1:p12`). Splits always
- * target the parent pi's pane (`$HERDR_PANE_ID`) so they follow the agent
- * rather than the user's focus. All calls go through the `herdr` CLI, which
- * inherits the session and socket from the pane environment.
+ * Panes are identified by Herdr pane ids (e.g. `w1:p12`). A subagent spawned
+ * by the main session gets its own tab; a subagent spawned by another
+ * subagent splits its parent's pane, so one tab holds one lineage. Splits
+ * always target the parent pi's pane (`$HERDR_PANE_ID`) so they follow the
+ * agent rather than the user's focus. All calls go through the `herdr` CLI,
+ * which inherits the session and socket from the pane environment.
  *
  * Launching uses the raw pane surface on purpose: the child runs inside a
  * shell wrapper that exports env, cds, and echoes an exit sentinel, none of
@@ -145,6 +147,40 @@ const SUBAGENT_SPLIT_DIRECTION: "right" | "down" | "auto" = "auto";
 function splitDirectionSetting(): "right" | "down" | "auto" {
   const raw = process.env.PI_SUBAGENT_SPLIT_DIRECTION?.trim();
   return raw === "right" || raw === "down" || raw === "auto" ? raw : SUBAGENT_SPLIT_DIRECTION;
+}
+
+/**
+ * Which surface a top-level subagent gets. "tab" gives every subagent of the
+ * main session its own tab, so the tab bar reads as a list of running
+ * subagents and each lineage keeps its own pane layout. "pane" keeps the old
+ * behaviour of splitting the main session's pane.
+ * Override with PI_SUBAGENT_TOP_LEVEL_SURFACE.
+ */
+const SUBAGENT_TOP_LEVEL_SURFACE: "tab" | "pane" = "tab";
+
+function topLevelSurfaceSetting(): "tab" | "pane" {
+  const raw = process.env.PI_SUBAGENT_TOP_LEVEL_SURFACE?.trim();
+  return raw === "tab" || raw === "pane" ? raw : SUBAGENT_TOP_LEVEL_SURFACE;
+}
+
+/**
+ * True when this pi is itself a subagent, i.e. it was launched by another pi
+ * with PI_SUBAGENT_NAME exported into its pane. Its children split its pane
+ * instead of opening a tab.
+ */
+export function isNestedSpawner(): boolean {
+  return !!process.env.PI_SUBAGENT_NAME?.trim();
+}
+
+/**
+ * Decide where a new subagent surface goes: a tab for the main session, a
+ * split for a subagent spawning its own children.
+ */
+export function chooseSurfaceKind(
+  nested: boolean = isNestedSpawner(),
+  setting: "tab" | "pane" = topLevelSurfaceSetting(),
+): "tab" | "pane" {
+  return !nested && setting === "tab" ? "tab" : "pane";
 }
 
 /**
@@ -287,15 +323,27 @@ export function planEvenSplits(layout: LayoutSnapshot): ResizeStep[] {
 // ── Surface primitives ──
 
 /**
- * Create a new pane for a subagent: a split off the parent pi's pane, so
- * new panes follow the agent rather than the user's focus. Direction comes
- * from the parent pane's geometry (see SUBAGENT_SPLIT_DIRECTION).
+ * Create the surface a subagent runs in.
+ *
+ * The main session opens a new tab per subagent, so each one is easy to find
+ * by name in the tab bar. A subagent spawning its own children splits its
+ * pane instead, which keeps a whole lineage inside one tab. Splits go off the
+ * parent pi's pane, so new panes follow the agent rather than the user's
+ * focus, with the direction taken from the parent pane's geometry (see
+ * SUBAGENT_SPLIT_DIRECTION).
  * See https://github.com/HazAT/pi-interactive-subagents/issues/12
  *
  * Returns the new pane id (e.g. `w1:p12`).
  */
 export function createSurface(name: string): string {
   requireHerdr();
+
+  if (chooseSurfaceKind() === "tab") {
+    const pane = createSurfaceTab(name);
+    if (pane) return pane;
+    // Tab creation failed (old server, no workspace) — fall back to a split.
+  }
+
   const parent = process.env.HERDR_PANE_ID;
   const direction = chooseSplitDirection(parent ? readLayout(parent) : undefined, parent ?? "");
   return createSurfaceSplit(name, direction, parent);
@@ -340,6 +388,43 @@ export function createSurfaceSplit(
 }
 
 /**
+ * Create a new tab holding a single pane for a subagent. The tab carries
+ * `name` as its label so the tab bar names the subagent, and the root pane
+ * gets the same label for the sidebar. Does not take focus unless
+ * `options.focus` is set.
+ *
+ * Returns the root pane id, or null when Herdr could not create the tab —
+ * callers fall back to splitting a pane.
+ */
+export function createSurfaceTab(
+  name: string,
+  options?: { focus?: boolean; cwd?: string },
+): string | null {
+  requireHerdr();
+
+  const args = ["tab", "create"];
+  const workspace = process.env.HERDR_WORKSPACE_ID;
+  if (workspace) args.push("--workspace", workspace);
+  args.push("--cwd", options?.cwd ?? process.cwd());
+  const label = name.trim();
+  if (label) args.push("--label", label);
+  args.push(options?.focus ? "--focus" : "--no-focus");
+
+  let result: any;
+  try {
+    result = herdrJson(args);
+  } catch {
+    return null;
+  }
+
+  const pane = result?.root_pane?.pane_id;
+  if (typeof pane !== "string" || pane.trim() === "") return null;
+
+  labelSurface(pane, name);
+  return pane;
+}
+
+/**
  * Label a pane in the Herdr sidebar. Cosmetic and best-effort.
  */
 export function labelSurface(surface: string, label: string): void {
@@ -349,6 +434,18 @@ export function labelSurface(surface: string, label: string): void {
     herdrJson(["pane", "rename", surface, trimmed]);
   } catch {
     // A missing label must never break spawning.
+  }
+}
+
+/**
+ * The tab a pane lives in (e.g. `w1:t2`), or null when it can't be read.
+ */
+export function getSurfaceTab(surface: string): string | null {
+  try {
+    const tab = herdrJson(["pane", "get", surface])?.pane?.tab_id;
+    return typeof tab === "string" && tab.trim() !== "" ? tab : null;
+  } catch {
+    return null;
   }
 }
 
@@ -512,7 +609,7 @@ function interpretExitSidecar(data: any): PollResult {
 }
 
 export const __pollForExitTest__ = { interpretExitSidecar };
-export const __layoutTest__ = { planEvenSplits, chooseSplitDirection };
+export const __layoutTest__ = { planEvenSplits, chooseSplitDirection, chooseSurfaceKind };
 
 /**
  * Poll until the subagent exits. Checks for a `.exit` sidecar file first
