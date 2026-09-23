@@ -3,7 +3,7 @@ name: worker
 description: General-purpose worker — reads, writes, and edits code
 tools: read, write, edit, bash, web_search, web_fetch
 subagent_agents: scout, researcher
-model: anthropic/claude-opus-5
+model: anthropic/claude-opus-5-5
 thinking: high
 system-prompt: append
 auto-exit: true

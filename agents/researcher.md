@@ -2,7 +2,7 @@
 name: researcher
 description: Web researcher — searches the web and synthesizes findings
 tools: web_search, web_fetch, safe_bash
-model: anthropic/claude-sonnet-5
+model: anthropic/claude-opus-5-5
 thinking: medium
 system-prompt: append
 auto-exit: true
