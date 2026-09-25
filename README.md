@@ -7,7 +7,7 @@ Async subagents for [pi](https://github.com/badlogic/pi-mono), running in [Herdr
 ## Installation
 
 ```bash
-pi install git:github.com/jordyvanvorselen/pi-interactive-subagents
+pi install npm:@jordyvanvorselen/pi-interactive-subagents
 ```
 
 Add `-l` to install for the current project only (`.pi/settings.json`). Update later with `pi update`.
