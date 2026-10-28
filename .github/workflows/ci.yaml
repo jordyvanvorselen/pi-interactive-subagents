@@ -1,0 +1,47 @@
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+      - name: Run unit tests
+        run: npm test
+
+  version-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: ./.github/actions/setup-node
+      - name: Check that the version is bumped
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          BASE_VERSION=$(git show "origin/$BASE_REF:package.json" | jq -r .version)
+          HEAD_VERSION=$(jq -r .version package.json)
+          LOCK_VERSION=$(jq -r .version package-lock.json)
+          if [ "$HEAD_VERSION" != "$LOCK_VERSION" ]; then
+            echo "::error file=package-lock.json::package-lock.json has version $LOCK_VERSION but package.json has $HEAD_VERSION. Run npm install."
+            exit 1
+          fi
+          if ! npx semver --range ">$BASE_VERSION" "$HEAD_VERSION" > /dev/null; then
+            echo "::error file=package.json::Version $HEAD_VERSION must be higher than $BASE_VERSION on $BASE_REF. Run npm version patch, minor or major --no-git-tag-version."
+            exit 1
+          fi
+          echo "Version bumped from $BASE_VERSION to $HEAD_VERSION"

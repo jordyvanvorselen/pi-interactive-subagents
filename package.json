@@ -1,6 +1,6 @@
 {
   "name": "@jordyvanvorselen/pi-interactive-subagents",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Interactive subagents for pi - spawn, orchestrate, and manage sub-agent sessions in Herdr panes",
   "keywords": [
     "pi-package"
