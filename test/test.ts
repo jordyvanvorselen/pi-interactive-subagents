@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import * as subagentsModule from "../pi-extension/subagents/index.ts";
 
 import {
@@ -56,6 +56,7 @@ import {
   runningChildrenCount,
 } from "../pi-extension/subagents/subagent-done.ts";
 import subagentDoneExtension from "../pi-extension/subagents/subagent-done.ts";
+import safeBashExtension from "../pi-extension/subagents/tools/safe-bash.ts";
 import { __pollForExitTest__, __layoutTest__ } from "../pi-extension/subagents/herdr.ts";
 
 // --- Helpers ---
@@ -2903,5 +2904,30 @@ describe("herdr.ts", () => {
       // Inside single quotes, everything is literal
       assert.ok(escaped.includes("$world"));
     });
+  });
+});
+
+describe("safe_bash tool", () => {
+  function registerSafeBash() {
+    const tools: any[] = [];
+    safeBashExtension({ registerTool(t: any) { tools.push(t); } } as any);
+    const tool = tools.find((t) => t.name === "safe_bash");
+    assert.ok(tool, "safe-bash.ts registers a safe_bash tool");
+    return tool;
+  }
+
+  it("runs a harmless command through pi's built-in bash tool", async () => {
+    const tool = registerSafeBash();
+    const result = await tool.execute("c1", { command: "echo safe-bash-ok" }, undefined, undefined, {});
+    const text = result.content.map((c: any) => c.text ?? "").join("");
+    assert.match(text, /safe-bash-ok/);
+  });
+
+  it("blocks a dangerous command before it reaches bash", async () => {
+    const tool = registerSafeBash();
+    await assert.rejects(
+      tool.execute("c2", { command: "sudo echo nope" }, undefined, undefined, {}),
+      /blocked by safe_bash/,
+    );
   });
 });

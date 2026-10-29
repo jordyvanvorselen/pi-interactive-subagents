@@ -1,7 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { keyHint } from "@mariozechner/pi-coding-agent";
-import { Type, type Static } from "@sinclair/typebox";
-import { Box, Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { keyHint } from "@earendil-works/pi-coding-agent";
+import { Type, type Static } from "typebox";
+import { Box, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -250,7 +250,7 @@ function getToolExtensionPath(tool: string): string | undefined {
  * Returns undefined when the package is absent or the child is not on an
  * Anthropic OAuth model, so nothing changes for API-key or other providers.
  */
-function getProviderAuthExtensionPath(model: string | undefined): string | undefined {
+function getProviderAuthExtensionPath(model: string | null | undefined): string | undefined {
   if (!model?.startsWith("anthropic/")) return undefined;
 
   let credentials: string;
@@ -1210,8 +1210,8 @@ function startWidgetRefresh() {
  * Call watchSubagent() on the returned object to observe completion.
  */
 async function launchSubagent(
-  params: typeof SubagentParams.static,
-  ctx: { sessionManager: { getSessionFile(): string | null; getSessionId(): string; getSessionDir(): string }; cwd: string },
+  params: Static<typeof SubagentParams> & { name: string },
+  ctx: { sessionManager: { getSessionFile(): string | null | undefined; getSessionId(): string; getSessionDir(): string }; cwd: string },
   options?: { surface?: string },
 ): Promise<RunningSubagent> {
   const startTime = Date.now();
@@ -1848,7 +1848,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         // from then on uniqueRunningName tracks it via the running map.
         let running;
         try {
-          running = await launchSubagent(params, ctx);
+          running = await launchSubagent({ ...params, name: params.name }, ctx);
         } finally {
           if (reservedName) reservedNames.delete(reservedName);
         }
@@ -1991,7 +1991,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
 
         // Fallback (shouldn't happen)
-        const text = typeof result.content[0]?.text === "string" ? result.content[0].text : "";
+        const first = result.content[0];
+        const text = first?.type === "text" ? first.text : "";
         return new Text(theme.fg("dim", text), 0, 0);
       },
     });
@@ -2114,7 +2115,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
 
         // Fallback / error
-        const text = typeof result.content[0]?.text === "string" ? result.content[0].text : "";
+        const first = result.content[0];
+        const text = first?.type === "text" ? first.text : "";
         return new Text(theme.fg("dim", text), 0, 0);
       },
 
@@ -2402,6 +2404,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     if (!details) return undefined;
 
     return {
+      invalidate() {},
       render(width: number): string[] {
         const name = details.name ?? "subagent";
         const exitCode = details.exitCode ?? 0;
@@ -2515,6 +2518,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     if (lines.length === 0 && overflow === 0) return undefined;
 
     return {
+      invalidate() {},
       render(width: number): string[] {
         const lineWidth = Math.max(0, width - 6);
         const contentLines = [
@@ -2542,6 +2546,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     if (!details) return undefined;
 
     return {
+      invalidate() {},
       render(width: number): string[] {
         const name = details.name ?? "subagent";
         const agentTag = details.agent ? theme.fg("dim", ` (${details.agent})`) : "";

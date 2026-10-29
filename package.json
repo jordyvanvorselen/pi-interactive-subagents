@@ -1,6 +1,6 @@
 {
   "name": "@jordyvanvorselen/pi-interactive-subagents",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Interactive subagents for pi - spawn, orchestrate, and manage sub-agent sessions in Herdr panes",
   "keywords": [
     "pi-package"
@@ -15,12 +15,13 @@
   "scripts": {
     "test": "node --test test/test.ts",
     "test:integration": "node --test --test-concurrency=1 test/integration/*.test.ts",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm run typecheck && npm test",
+    "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "pi": {
     "extensions": [
@@ -28,9 +29,11 @@
     ]
   },
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.65.0",
-    "@mariozechner/pi-tui": "^0.65.0",
-    "@sinclair/typebox": "^0.34.49"
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
+    "@types/node": "^24.19.2",
+    "typebox": "^1.4.3",
+    "typescript": "^5.9.3"
   },
   "publishConfig": {
     "access": "public"
@@ -41,5 +44,8 @@
     "config.json.example",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "overrides": {
+    "undici": "^8.12.3"
+  }
 }
