@@ -58,6 +58,16 @@ import {
 import subagentDoneExtension from "../pi-extension/subagents/subagent-done.ts";
 import safeBashExtension from "../pi-extension/subagents/tools/safe-bash.ts";
 import { __pollForExitTest__, __layoutTest__ } from "../pi-extension/subagents/herdr.ts";
+import {
+  exitStateOf,
+  freshTabId,
+  isHerdrDesktopEnv,
+  lastLines,
+  launchArgv,
+  runArgs,
+  terminalName,
+  uniqueTerminalName,
+} from "../pi-extension/subagents/herdr-desktop.ts";
 
 // --- Helpers ---
 
@@ -2566,6 +2576,15 @@ describe("subagent status renderer", () => {
 });
 
 describe("subagent startup delay", () => {
+  // The delay only applies outside the Herdr desktop app, which these tests may run in.
+  const originalTerminalId = process.env.HC_TERMINAL_ID;
+  beforeEach(() => {
+    delete process.env.HC_TERMINAL_ID;
+  });
+  after(() => {
+    if (originalTerminalId != null) process.env.HC_TERMINAL_ID = originalTerminalId;
+  });
+
   it("defaults to 500ms when no env var is set", () => {
     const testApi = (subagentsModule as any).__test__;
     assert.ok(testApi, "expected subagents test helpers to be exported");
@@ -2904,6 +2923,72 @@ describe("herdr.ts", () => {
       // Inside single quotes, everything is literal
       assert.ok(escaped.includes("$world"));
     });
+  });
+});
+
+describe("herdr-desktop.ts", () => {
+  it("detects the desktop app by the HC_TERMINAL_ID herdr-core exports", () => {
+    assert.equal(isHerdrDesktopEnv({ HC_TERMINAL_ID: "t2" }), true);
+    assert.equal(isHerdrDesktopEnv({ HERDR_ENV: "1" }), false);
+    assert.equal(isHerdrDesktopEnv({ HC_TERMINAL_ID: " " }), false);
+  });
+
+  it("turns a subagent name into a valid hc terminal name", () => {
+    assert.equal(terminalName("Scout: Map the API!"), "scout-map-the-api");
+    assert.equal(terminalName("worker_2"), "worker_2");
+    assert.equal(terminalName("a".repeat(40))?.length, 32, "hc caps names at 32 characters");
+    assert.equal(terminalName("x".repeat(31) + "-y"), "x".repeat(31), "no trailing dash after the cut");
+    assert.equal(terminalName("!!!"), null, "nothing usable is left");
+  });
+
+  it("skips names live terminals already hold, within hc's 32 characters", () => {
+    assert.equal(uniqueTerminalName("scout", new Set()), "scout");
+    assert.equal(uniqueTerminalName("scout", new Set(["scout", "scout-2"])), "scout-3");
+    const long = "x".repeat(32);
+    assert.equal(uniqueTerminalName(long, new Set([long])), "x".repeat(30) + "-2");
+  });
+
+  it("starts subagents without notes, focus or a tie to the parent's lifetime", () => {
+    const args = runArgs({
+      cwd: "/repo", space: "sp1", tab: "tb1", name: "scout", argv: ["bash", "/s.sh"],
+    });
+    assert.deepEqual(args, [
+      "run", "--bg", "--keep", "--no-notify", "--outlive-parent",
+      "--cwd", "/repo", "--name", "scout",
+      "--label", "herdr.space=sp1", "--label", "herdr.tab=tb1",
+      "--", "bash", "/s.sh",
+    ]);
+  });
+
+  it("runs the launch script through the login shell, so the child gets the person's PATH", () => {
+    assert.deepEqual(
+      launchArgv("/tmp/it's.sh", { shell: "/bin/zsh", platform: "darwin" }),
+      ["/bin/zsh", "-l", "-i", "-c", "exec bash '/tmp/it'\\''s.sh'"],
+    );
+    assert.equal(launchArgv("/s.sh", { platform: "linux" })[0], "/bin/sh", "no $SHELL falls back to sh");
+    assert.deepEqual(launchArgv("C:\\s.sh", { platform: "win32" }), ["bash", "C:\\s.sh"]);
+  });
+
+  it("knows a subagent ended from herdr-core's record, not its screen", () => {
+    assert.deepEqual(exitStateOf({ state: "live" }), { finished: false });
+    assert.deepEqual(exitStateOf({ state: "finished", exit_code: 0 }), { finished: true, exitCode: 0 });
+    assert.deepEqual(
+      exitStateOf({ state: "finished", exit_code: null }),
+      { finished: true, exitCode: 1 },
+      "a killed terminal has no exit code and counts as a failure",
+    );
+  });
+
+  it("makes a tab id the app has not seen, so it opens a new tab", () => {
+    const id = freshTabId();
+    assert.match(id, /^tb[0-9a-f]{32}$/);
+    assert.notEqual(id, freshTabId());
+  });
+
+  it("keeps only the last lines of what hc read prints", () => {
+    const screen = "one\ntwo\nthree\n__SUBAGENT_DONE_0__\n\n\n";
+    assert.equal(lastLines(screen, 2), "three\n__SUBAGENT_DONE_0__\n");
+    assert.equal(lastLines(screen, 0), "__SUBAGENT_DONE_0__\n", "at least one line");
   });
 });
 

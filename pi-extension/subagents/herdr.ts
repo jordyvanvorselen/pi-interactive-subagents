@@ -18,12 +18,27 @@
  * which `herdr agent start` can do. Steering a running child goes through
  * the agent surface (`herdr agent prompt`) so Herdr honours bracketed paste
  * and refuses to type over an approval or question dialog.
+ *
+ * Inside the Herdr desktop app the same primitives go through herdr-core's
+ * `hc` CLI instead; see herdr-desktop.ts.
  */
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import {
+  closeDesktopSurface,
+  createDesktopSurface,
+  desktopExitState,
+  isHerdrDesktopEnv,
+  isPendingDesktopSurface,
+  launchDesktopSurface,
+  readDesktopScreen,
+  readDesktopScreenAsync,
+  sendDesktopCommand,
+  sendDesktopMessage,
+} from "./herdr-desktop.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,16 +84,39 @@ export function isHerdrAvailable(): boolean {
   return process.env.HERDR_ENV === "1" && (!!process.env.HERDR_BIN_PATH || hasCommand("herdr"));
 }
 
+/**
+ * True when running in a terminal of the Herdr desktop app with `hc`
+ * reachable, and not inside a Herdr TUI pane (which wins when both apply).
+ */
+export function isHerdrDesktopAvailable(): boolean {
+  return !isHerdrAvailable() && isHerdrDesktopEnv() && hasCommand("hc");
+}
+
 export function isMuxAvailable(): boolean {
-  return isHerdrAvailable();
+  return isHerdrAvailable() || isHerdrDesktopAvailable();
 }
 
 export function muxSetupHint(): string {
-  return "Start pi inside a Herdr pane (run `herdr`, then `pi`).";
+  return "Start pi in a terminal of the Herdr desktop app, or inside a Herdr pane (run `herdr`, then `pi`).";
 }
 
 function requireHerdr(): void {
   if (!isHerdrAvailable()) {
+    throw new Error(`Herdr is required for subagents. ${muxSetupHint()}`);
+  }
+}
+
+/**
+ * Whether a freshly created surface needs a pause for its shell to start
+ * before the launch command is typed. Desktop surfaces run the launch script
+ * directly, so there is nothing to wait for.
+ */
+export function needsShellReadyDelay(): boolean {
+  return !isHerdrDesktopAvailable();
+}
+
+function requireMux(): void {
+  if (!isMuxAvailable()) {
     throw new Error(`Herdr is required for subagents. ${muxSetupHint()}`);
   }
 }
@@ -403,7 +441,8 @@ export function planEvenSplits(layout: LayoutSnapshot): ResizeStep[] {
  * Returns the new pane id (e.g. `w1:p12`).
  */
 export function createSurface(name: string): string {
-  requireHerdr();
+  requireMux();
+  if (isHerdrDesktopAvailable()) return createDesktopSurface(name, chooseSurfaceKind());
 
   if (chooseSurfaceKind() === "tab") {
     const pane = createSurfaceTab(name);
@@ -532,7 +571,8 @@ export function getFocusedSurface(fromSurface?: string): string | null {
  * ordered write, so special characters are never interpreted as keys.
  */
 export function sendCommand(surface: string, command: string): void {
-  requireHerdr();
+  requireMux();
+  if (isHerdrDesktopAvailable()) return sendDesktopCommand(surface, command);
   herdrJson(["pane", "run", surface, command]);
 }
 
@@ -544,7 +584,8 @@ export function sendCommand(surface: string, command: string): void {
  * the pane yet (`agent_not_found`), e.g. during startup.
  */
 export function sendMessage(surface: string, message: string): void {
-  requireHerdr();
+  requireMux();
+  if (isHerdrDesktopAvailable()) return sendDesktopMessage(surface, message);
   try {
     herdrJson(["agent", "prompt", surface, message]);
   } catch (error: any) {
@@ -588,6 +629,11 @@ export function sendLongCommand(
     mode: 0o755,
   });
 
+  if (isHerdrDesktopAvailable() && isPendingDesktopSurface(surface)) {
+    launchDesktopSurface(surface, scriptPath);
+    return scriptPath;
+  }
+
   // Windows panes run PowerShell or cmd, which disagree about quoting an
   // executable path with spaces. A .cmd shim next to the script is typed as a
   // bare, space-free path and resolves the same way in both shells.
@@ -626,7 +672,8 @@ function readArgs(surface: string, lines: number): string[] {
  * Read the screen contents of a pane (sync). `pane read` prints plain text.
  */
 export function readScreen(surface: string, lines = 50): string {
-  requireHerdr();
+  requireMux();
+  if (isHerdrDesktopAvailable()) return readDesktopScreen(surface, lines);
   try {
     return execFileSync(herdrBin(), readArgs(surface, lines), {
       encoding: "utf8",
@@ -641,7 +688,8 @@ export function readScreen(surface: string, lines = 50): string {
  * Read the screen contents of a pane (async).
  */
 export async function readScreenAsync(surface: string, lines = 50): Promise<string> {
-  requireHerdr();
+  requireMux();
+  if (isHerdrDesktopAvailable()) return readDesktopScreenAsync(surface, lines);
   try {
     const { stdout } = await execFileAsync(herdrBin(), readArgs(surface, lines), {
       encoding: "utf8",
@@ -656,7 +704,8 @@ export async function readScreenAsync(surface: string, lines = 50): Promise<stri
  * Close a pane.
  */
 export function closeSurface(surface: string): void {
-  requireHerdr();
+  requireMux();
+  if (isHerdrDesktopAvailable()) return closeDesktopSurface(surface);
   herdrJson(["pane", "close", surface]);
   rebalanceSurfaces();
 }
@@ -738,12 +787,23 @@ export async function pollForExit(
       } catch {}
     }
 
-    // Slow path: read terminal screen for sentinel (crash detection)
+    // Slow path: read terminal screen for sentinel (crash detection).
+    // Desktop terminals end with their launch script, so herdr-core's record
+    // says when; the screen only supplies pi's exit code.
     try {
-      const screen = await readScreenAsync(surface, 5);
-      const match = screen.match(/__SUBAGENT_DONE_(\d+)__/);
-      if (match) {
-        return { reason: "sentinel", exitCode: parseInt(match[1], 10) };
+      if (isHerdrDesktopAvailable()) {
+        const state = await desktopExitState(surface);
+        if (state.finished) {
+          const screen = await readScreenAsync(surface, 5).catch(() => "");
+          const match = screen.match(/__SUBAGENT_DONE_(\d+)__/);
+          return { reason: "sentinel", exitCode: match ? parseInt(match[1], 10) : state.exitCode };
+        }
+      } else {
+        const screen = await readScreenAsync(surface, 5);
+        const match = screen.match(/__SUBAGENT_DONE_(\d+)__/);
+        if (match) {
+          return { reason: "sentinel", exitCode: parseInt(match[1], 10) };
+        }
       }
     } catch {
       // Surface may have been destroyed — check if .exit file appeared in the meantime

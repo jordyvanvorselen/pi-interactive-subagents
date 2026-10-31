@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import {
   isMuxAvailable,
   muxSetupHint,
+  needsShellReadyDelay,
   createSurface,
   sendMessage,
   sendLongCommand,
@@ -540,6 +541,7 @@ function widgetIcon(kind: StatusSnapshot["kind"]): string {
  * dropped commands. Keep the historical default at 500ms.
  */
 function getShellReadyDelayMs(): number {
+  if (!needsShellReadyDelay()) return 0;
   const raw = process.env.PI_SUBAGENT_SHELL_READY_DELAY_MS?.trim();
   const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;

@@ -36,6 +36,16 @@ Panes are kept evenly sized: after every spawn and exit (debounced) the extensio
 
 Steering a running sub-agent goes through `herdr agent prompt`, so the message respects bracketed paste and is refused with `agent_blocked` if the child is sitting at an approval or question dialog.
 
+### Herdr desktop app
+
+In the Herdr desktop app (`herdr-app`), terminals run in herdr-core and the extension drives the `hc` CLI instead of `herdr`. It detects the app by `HC_TERMINAL_ID`. When pi runs in a Herdr TUI pane inside the app, the TUI path above applies.
+
+- Sub-agents land in the same places: a new named tab for the main session, a split in the parent's tab for nested sub-agents. Neither moves your focus.
+- The app's Agents list nests every sub-agent under the agent that started it, with its status.
+- Nothing is typed into a shell. The launch script runs directly through your login shell, so the pane opens straight into pi with your usual `PATH`. The 500 ms shell-ready delay does not apply.
+- The extension learns that a sub-agent ended from herdr-core, not from its screen. The pane closes when the sub-agent exits.
+- The app chooses the split side, so `PI_SUBAGENT_SPLIT_DIRECTION` and the even pane sizing apply to the TUI only.
+
 If your shell startup is slow and launch commands get dropped before the prompt is ready, raise the delay:
 
 ```bash
@@ -196,13 +206,14 @@ Status display is configured via `config.json` in the extension directory (copy 
 
 - [pi](https://github.com/badlogic/pi-mono)
 - [Herdr](https://herdr.dev) 0.9 or later. The extension drives the `herdr` CLI and needs `HERDR_ENV=1`, which Herdr sets in every pane it manages.
+- Or the Herdr desktop app, with `hc` on your `PATH`. The extension needs `HC_TERMINAL_ID`, which herdr-core sets in every terminal.
 
 ```bash
 herdr        # open or attach the Herdr session
 pi           # start pi inside a Herdr pane
 ```
 
-Running pi outside Herdr disables the `subagent` tools with a setup hint.
+In the desktop app, start `pi` in any of its terminals. Running pi outside Herdr disables the `subagent` tools with a setup hint.
 
 ## Acknowledgements
 
